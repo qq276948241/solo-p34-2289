@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db/connection');
 const authMiddleware = require('../middleware/auth');
-const { isTimeOverlap, isRegistrationOpen, EVENT_STATUS, calculateEventStatus } = require('../utils/helpers');
+const { isTimeOverlap, isRegistrationOpen, isCheckinWindowOpen, EVENT_STATUS, calculateEventStatus } = require('../utils/helpers');
 const { enrichEventWithStats } = require('./events');
 
 const router = express.Router();
@@ -200,11 +200,66 @@ router.post('/:eventId/cancel', authMiddleware, (req, res) => {
   res.json(response);
 });
 
+router.post('/:eventId/checkin', authMiddleware, (req, res) => {
+  const eventId = req.params.eventId;
+  const userId = req.user.userId;
+
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
+  if (!event) {
+    return res.status(404).json({ error: '活动不存在' });
+  }
+
+  const registration = db
+    .prepare("SELECT * FROM registrations WHERE user_id = ? AND event_id = ? AND status = 'confirmed'")
+    .get(userId, eventId);
+
+  if (!registration) {
+    return res.status(404).json({ error: '您未报名该活动或报名已取消' });
+  }
+
+  if (registration.checked_in_at) {
+    return res.status(409).json({
+      error: '您已完成签到',
+      checked_in_at: registration.checked_in_at,
+    });
+  }
+
+  if (!isCheckinWindowOpen(event)) {
+    const startTime = new Date(event.start_time);
+    const oneHourBefore = new Date(startTime.getTime() - 60 * 60 * 1000);
+    const oneHourAfter = new Date(startTime.getTime() + 60 * 60 * 1000);
+    return res.status(400).json({
+      error: '不在签到时间窗口内（活动开始前后1小时）',
+      checkin_window: {
+        start: oneHourBefore.toISOString(),
+        end: oneHourAfter.toISOString(),
+      },
+      event_start_time: event.start_time,
+      current_time: new Date().toISOString(),
+    });
+  }
+
+  db.prepare(
+    'UPDATE registrations SET checked_in_at = CURRENT_TIMESTAMP WHERE id = ?'
+  ).run(registration.id);
+
+  const updated = db.prepare('SELECT * FROM registrations WHERE id = ?').get(registration.id);
+
+  res.json({
+    message: '签到成功',
+    result: {
+      registration_id: updated.id,
+      checked_in_at: updated.checked_in_at,
+      event_title: event.title,
+    },
+  });
+});
+
 router.get('/my-registrations', authMiddleware, (req, res) => {
   const { status = 'all' } = req.query;
 
   let regSql = `
-    SELECT r.id, r.event_id, r.status, r.registered_at, r.cancelled_at,
+    SELECT r.id, r.event_id, r.status, r.registered_at, r.cancelled_at, r.checked_in_at,
            e.title, e.location, e.start_time, e.end_time, e.max_attendees
     FROM registrations r
     JOIN events e ON r.event_id = e.id
@@ -240,6 +295,11 @@ router.get('/my-registrations', authMiddleware, (req, res) => {
     registrations: registrations.map(r => ({
       ...r,
       is_past: new Date(r.end_time) < new Date(),
+      is_checked_in: !!r.checked_in_at,
+      checkin_window: {
+        start: new Date(new Date(r.start_time).getTime() - 60 * 60 * 1000).toISOString(),
+        end: new Date(new Date(r.start_time).getTime() + 60 * 60 * 1000).toISOString(),
+      },
     })),
     waitlists,
   });

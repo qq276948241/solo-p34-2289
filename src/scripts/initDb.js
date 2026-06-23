@@ -39,6 +39,7 @@ function initDatabase() {
       status TEXT DEFAULT 'confirmed',
       registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       cancelled_at DATETIME,
+      checked_in_at DATETIME,
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (event_id) REFERENCES events(id),
       UNIQUE(user_id, event_id)

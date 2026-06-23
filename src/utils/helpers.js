@@ -46,10 +46,19 @@ function validatePhone(phone) {
   return /^1[3-9]\d{9}$/.test(phone);
 }
 
+function isCheckinWindowOpen(event) {
+  const now = new Date();
+  const startTime = new Date(event.start_time);
+  const oneHourBefore = new Date(startTime.getTime() - 60 * 60 * 1000);
+  const oneHourAfter = new Date(startTime.getTime() + 60 * 60 * 1000);
+  return now >= oneHourBefore && now <= oneHourAfter;
+}
+
 module.exports = {
   EVENT_STATUS,
   calculateEventStatus,
   isTimeOverlap,
   isRegistrationOpen,
   validatePhone,
+  isCheckinWindowOpen,
 };

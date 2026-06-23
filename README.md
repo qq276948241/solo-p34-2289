@@ -6,8 +6,9 @@
 
 - **活动管理**：创建/编辑/删除活动、设置人数上限、状态自动切换（报名中/已满/已结束/已关闭）
 - **报名管理**：用户报名/取消、满员自动进入候补队列、有人取消时自动递补
+- **现场签到**：活动开始前后各1小时签到窗口、仅确认报名用户可签到、重复签到校验
 - **用户模块**：手机号注册登录、JWT 认证、个人资料管理
-- **数据统计**：活动报名转化率、用户参与次数排行、全局概览
+- **数据统计**：活动报名转化率、活动签到率、用户参与次数排行、全局概览
 - **定时任务**：每 5 分钟自动刷新所有活动状态
 
 ## 业务规则
@@ -220,7 +221,45 @@ POST /api/registrations/:eventId/cancel
 - 仅取消无递补：`{ "message": "取消成功" }`
 - 取消候补：`{ "message": "已从候补队列中移除" }`
 
-#### 3.3 查看我的报名
+#### 3.3 现场签到
+
+```
+POST /api/registrations/:eventId/checkin
+```
+
+**业务规则：**
+- 仅状态为 `confirmed`（已确认报名）的用户可以签到
+- 签到时间窗口：**活动开始前 1 小时 ～ 活动开始后 1 小时**（共 2 小时）
+- 同一用户同一活动只能签到一次（重复签到返回 409 错误）
+
+**成功响应：**
+
+```json
+{
+  "message": "签到成功",
+  "result": {
+    "registration_id": 1,
+    "checked_in_at": "2026-06-23 13:02:11",
+    "event_title": "2026 线下产品发布会"
+  }
+}
+```
+
+**不在签到窗口响应（HTTP 400）：**
+
+```json
+{
+  "error": "不在签到时间窗口内（活动开始前后1小时）",
+  "checkin_window": {
+    "start": "2026-06-30T11:57:28.633Z",
+    "end": "2026-06-30T13:57:28.633Z"
+  },
+  "event_start_time": "2026-06-30T12:57:28.633Z",
+  "current_time": "2026-06-23T13:02:11.706Z"
+}
+```
+
+#### 3.4 查看我的报名
 
 ```
 GET /api/registrations/my-registrations?status=all
@@ -230,6 +269,11 @@ GET /api/registrations/my-registrations?status=all
 - `all`：全部（默认）
 - `confirmed`：已确认报名
 - `cancelled`：已取消
+
+**响应字段补充：**
+- `is_checked_in`：是否已签到（布尔）
+- `checked_in_at`：签到时间（若已签到）
+- `checkin_window`：`{ start, end }` 签到时间窗口范围
 
 ---
 
@@ -241,7 +285,7 @@ GET /api/registrations/my-registrations?status=all
 GET /api/stats/overview
 ```
 
-返回总用户数、总活动数、总报名数、整体转化率、即将开始和最近结束的活动。
+返回总用户数、总活动数、总报名数、**总签到数**、整体转化率、**整体签到率**、即将开始和最近结束的活动。
 
 #### 4.2 活动统计列表
 
@@ -252,11 +296,13 @@ GET /api/stats/events/summary?sort_by=registration_rate&sort_order=desc
 关键指标：
 - `confirmed_count`：实际确认报名数
 - `cancelled_count`：取消报名数
+- `checked_in_count`：实际签到人数
 - `total_signups`：总报名尝试数
 - `registration_rate`：报名转化率（确认报名 / 总报名）
 - `fill_rate`：人员填充率（确认报名 / 人数上限）
+- `checkin_rate`：活动签到率（签到人数 / 确认报名数）
 
-排序字段：`start_time`、`registration_rate`、`confirmed_count`、`max_attendees`
+排序字段：`start_time`、`registration_rate`、`confirmed_count`、`max_attendees`、**`checkin_rate`**
 
 #### 4.3 单个活动详细统计
 
@@ -264,7 +310,7 @@ GET /api/stats/events/summary?sort_by=registration_rate&sort_order=desc
 GET /api/stats/events/:id/detail
 ```
 
-返回活动各指标详情及按小时统计的报名趋势。
+返回活动各指标详情（含签到人数、签到率）及按小时统计的报名趋势。
 
 #### 4.4 用户参与排行
 
@@ -293,7 +339,9 @@ project34/
 │   │   ├── registrations.js  # 报名管理
 │   │   └── stats.js          # 数据统计
 │   ├── scheduler/        # 定时任务
-│   ├── scripts/          # 脚本（数据库初始化）
+│   ├── scripts/          # 脚本（数据库初始化 / 数据迁移）
+│   │   ├── initDb.js         # 建表脚本
+│   │   └── migrate.js        # 数据迁移脚本
 │   ├── utils/            # 工具函数
 │   ├── app.js            # Express 应用入口
 │   └── server.js         # 服务器启动

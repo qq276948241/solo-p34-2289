@@ -14,6 +14,10 @@ function enrichEventWithStats(event) {
     .prepare("SELECT COUNT(*) as count FROM waitlists WHERE event_id = ? AND status = 'waiting'")
     .get(event.id).count;
 
+  const checkedInCount = db
+    .prepare("SELECT COUNT(*) as count FROM registrations WHERE event_id = ? AND status = 'confirmed' AND checked_in_at IS NOT NULL")
+    .get(event.id).count;
+
   const currentStatus = calculateEventStatus(event, registeredCount);
 
   if (currentStatus !== event.status) {
@@ -28,6 +32,10 @@ function enrichEventWithStats(event) {
     ...event,
     registered_count: registeredCount,
     waitlist_count: waitlistCount,
+    checked_in_count: checkedInCount,
+    checkin_rate: registeredCount > 0
+      ? parseFloat(((checkedInCount * 100) / registeredCount).toFixed(2))
+      : 0,
     is_registration_open: isRegistrationOpen(event),
   };
 }
@@ -118,7 +126,7 @@ router.get('/:id', authMiddleware, (req, res) => {
 
   const registrations = db
     .prepare(
-      `SELECT r.id, r.user_id, r.status, r.registered_at, u.phone, u.nickname
+      `SELECT r.id, r.user_id, r.status, r.registered_at, r.checked_in_at, u.phone, u.nickname
        FROM registrations r
        LEFT JOIN users u ON r.user_id = u.id
        WHERE r.event_id = ?

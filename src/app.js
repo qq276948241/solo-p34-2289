@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 
 const initDatabase = require('./scripts/initDb');
+const runMigrations = require('./scripts/migrate');
 const { startStatusScheduler } = require('./scheduler/eventStatus');
 
 const userRoutes = require('./routes/users');
@@ -11,6 +12,7 @@ const registrationRoutes = require('./routes/registrations');
 const statsRoutes = require('./routes/stats');
 
 initDatabase();
+runMigrations();
 startStatusScheduler();
 
 const app = express();
